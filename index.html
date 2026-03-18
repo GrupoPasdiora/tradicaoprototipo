@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Catalisador Literário · Grupo Pasdiora</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0A0A0F; color: #fff; font-family: 'Source Serif 4', serif; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+    input:focus, button:focus { outline: none; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script crossorigin src="https://unpkg.com/mammoth@1.6.0/mammoth.browser.min.js"></script>
+  <script crossorigin src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
+  <script crossorigin src="https://unpkg.com/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <script type="text/babel">
+    const { useState, useCallback, useRef, useEffect } = React;
+
+    const SYSTEM_PROMPT = "Você é um editor literário sênior brasileiro com 30 anos de experiência em não-ficção, autoajuda e biografias. Você é exigente, preciso e construtivo. Responda SEMPRE em JSON válido, sem markdown, sem backticks. Apenas o JSON puro.";
+
+    const MODULE_PROMPTS = {
+      redundancias: {
+        name: "Radar de Redundâncias", icon: "🔍", color: "#E63946",
+        prompt: "Analise o texto abaixo e identifique TODAS as redundâncias:\n1. Repetições lexicais: palavras ou expressões repetidas excessivamente\n2. Redundâncias semânticas: parágrafos ou frases que dizem a mesma coisa de formas diferentes\n3. Ideias circulares: argumentos que voltam ao mesmo ponto sem avançar\n4. Chavões e clichês: expressões desgastadas que enfraquecem o texto\n\nResponda em JSON:\n{\"score\": \"0-100\", \"resumo\": \"análise geral em 2 frases\", \"problemas\": [{\"tipo\": \"lexical|semantica|circular|cliche\", \"gravidade\": \"alta|media|baixa\", \"trecho\": \"trecho problemático\", \"explicacao\": \"por que é redundante\", \"sugestao\": \"como resolver\"}], \"estatisticas\": {\"palavras_mais_repetidas\": [{\"palavra\": \"x\", \"contagem\": 0}], \"densidade_redundancia\": \"X%\"}}\n\nTEXTO:\n"
+      },
+      arco_narrativo: {
+        name: "Arquiteto de Arco", icon: "📐", color: "#457B9D",
+        prompt: "Analise a estrutura narrativa do texto abaixo (não-ficção/autoajuda/biografia):\n1. Estrutura: começo-meio-fim claros? Progressão lógica?\n2. Ritmo: Onde cai? Onde o leitor perderia interesse?\n3. Ganchos: Elementos que mantêm o leitor engajado?\n4. Transições suaves?\n5. Tensão narrativa: problema→solução, antes→depois?\n\nResponda em JSON:\n{\"score\": \"0-100\", \"resumo\": \"análise em 2 frases\", \"estrutura\": {\"abertura\": {\"qualidade\": \"forte|media|fraca\", \"comentario\": \"...\"}, \"desenvolvimento\": {\"qualidade\": \"forte|media|fraca\", \"comentario\": \"...\"}, \"fechamento\": {\"qualidade\": \"forte|media|fraca\", \"comentario\": \"...\"}}, \"pontos_fracos\": [{\"localizacao\": \"início|meio|fim\", \"problema\": \"descrição\", \"impacto\": \"alto|medio|baixo\", \"sugestao\": \"como melhorar\"}], \"ritmo_visual\": \"descrição do ritmo\"}\n\nTEXTO:\n"
+      },
+      ortografia: {
+        name: "Corretor Avançado", icon: "✏️", color: "#2A9D8F",
+        prompt: "Analise como revisor profissional de português brasileiro:\n1. Ortografia: erros de grafia\n2. Gramática: concordância, regência, crase, pontuação\n3. Estilo: gerundismo, voz passiva excessiva, frases longas\n4. Pontuação: vírgulas, pontos, travessões, aspas\n\nResponda em JSON:\n{\"score\": \"0-100\", \"resumo\": \"análise em 2 frases\", \"erros\": [{\"tipo\": \"ortografia|gramatica|estilo|pontuacao\", \"gravidade\": \"alta|media|baixa\", \"trecho_original\": \"texto com erro\", \"correcao\": \"texto corrigido\", \"regra\": \"regra gramatical\"}], \"estatisticas\": {\"total_erros\": 0, \"frases_muito_longas\": 0, \"voz_passiva_percentual\": \"X%\"}}\n\nTEXTO:\n"
+      },
+      enriquecimento: {
+        name: "Enriquecedor de Escrita", icon: "💎", color: "#E9C46A",
+        prompt: "Sugira enriquecimentos para elevar a qualidade literária:\n1. Vocabulário: palavras mais precisas/evocativas\n2. Figuras de linguagem: metáforas, analogias, antíteses\n3. Ritmo frasal: alternar curtas e longas\n4. Show don't tell\n5. Sensorialidade: detalhes sensoriais\n\nResponda em JSON:\n{\"score\": \"0-100\", \"resumo\": \"análise em 2 frases\", \"sugestoes\": [{\"tipo\": \"vocabulario|figura_linguagem|ritmo|show_dont_tell|sensorial\", \"impacto\": \"alto|medio|baixo\", \"trecho_original\": \"texto original\", \"sugestao_reescrita\": \"versão enriquecida\", \"explicacao\": \"por que é melhor\"}], \"nivel_atual\": \"iniciante|intermediario|avancado|profissional\", \"potencial\": \"descrição do potencial\"}\n\nTEXTO:\n"
+      },
+      catalisador: {
+        name: "Fator Catalisador", icon: "⚡", color: "#F4A261",
+        prompt: "Avalie o PODER DE CATIVAÇÃO deste texto:\n1. Abertura magnética: As primeiras linhas prendem?\n2. Voz autoral: Distinta, memorável, autêntica?\n3. Conexão emocional: Empatia, curiosidade, identificação?\n4. Page-turner factor: Urgência de continuar?\n5. Unicidade: Se diferencia no gênero?\n6. Transformação: Leitor sai diferente?\n\nResponda em JSON:\n{\"score\": \"0-100\", \"resumo\": \"análise em 2 frases\", \"veredito\": \"publicável como está | precisa de ajustes | precisa de reescrita significativa\", \"dimensoes\": {\"abertura_magnetica\": {\"score\": \"0-100\", \"comentario\": \"...\"}, \"voz_autoral\": {\"score\": \"0-100\", \"comentario\": \"...\"}, \"conexao_emocional\": {\"score\": \"0-100\", \"comentario\": \"...\"}, \"page_turner\": {\"score\": \"0-100\", \"comentario\": \"...\"}, \"unicidade\": {\"score\": \"0-100\", \"comentario\": \"...\"}, \"transformacao\": {\"score\": \"0-100\", \"comentario\": \"...\"}}, \"o_que_falta\": \"coisa mais importante que falta\", \"ponto_forte\": \"maior trunfo\", \"recomendacao_final\": \"conselho em 3 frases\"}\n\nTEXTO:\n"
+      }
+    };
+
+    const REWRITE_PROMPT = "Você é um editor literário sênior brasileiro. REESCREVA o capítulo aplicando TODAS as melhorias:\n1. ELIMINE redundâncias\n2. MELHORE arco narrativo (abertura, ganchos, transições, ritmo)\n3. CORRIJA ortografia, gramática, pontuação\n4. ENRIQUEÇA a escrita (vocabulário, figuras de linguagem, show don't tell, sensorialidade)\n5. MAXIMIZE o fator catalisador (voz autoral, conexão emocional, page-turner)\n\nREGRAS: Mantenha essência/mensagem/estilo do autor. NÃO invente fatos. NÃO mude estrutura. Preserve tom, eleve qualidade. Tamanho similar (até 20% maior).\n\nResponda em JSON:\n{\"titulo_capitulo\": \"título\", \"texto_reescrito\": \"texto completo reescrito\", \"mudancas_principais\": [\"3-5 mudanças\"], \"score_antes_estimado\": 0, \"score_depois_estimado\": 0}\n\nCAPÍTULO ORIGINAL:\n";
+
+    function detectChapters(text) {
+      const lines = text.split("\n");
+      const patterns = [/^cap[íi]tulo\s+\d+/i, /^cap[íi]tulo\s+[IVXLCDM]+/i, /^cap\.\s*\d+/i, /^parte\s+\d+/i, /^parte\s+[IVXLCDM]+/i, /^se[çc][ãa]o\s+\d+/i, /^chapter\s+\d+/i, /^\d+\.\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/, /^\d+\s*[-–—]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/];
+      const starts = [];
+      lines.forEach((line, idx) => {
+        const t = line.trim();
+        if (t.length < 3 || t.length > 120) return;
+        for (const p of patterns) { if (p.test(t)) { starts.push({ index: idx, title: t }); break; } }
+      });
+      if (starts.length === 0) {
+        const words = text.split(/\s+/); const cs = 3000; const chs = [];
+        for (let i = 0; i < words.length; i += cs) { const chunk = words.slice(i, i + cs).join(" "); chs.push({ title: "Bloco " + (chs.length + 1), content: chunk, wordCount: Math.min(cs, words.length - i) }); }
+        return chs;
+      }
+      const chs = [];
+      for (let i = 0; i < starts.length; i++) {
+        const s = starts[i].index; const e = i + 1 < starts.length ? starts[i + 1].index : lines.length;
+        const c = lines.slice(s, e).join("\n").trim();
+        chs.push({ title: starts[i].title, content: c, wordCount: c.split(/\s+/).filter(Boolean).length });
+      }
+      if (starts.length > 0 && starts[0].index > 0) {
+        const intro = lines.slice(0, starts[0].index).join("\n").trim();
+        if (intro.split(/\s+/).filter(Boolean).length > 50) chs.unshift({ title: "Introdução / Prefácio", content: intro, wordCount: intro.split(/\s+/).filter(Boolean).length });
+      }
+      return chs;
+    }
+
+    async function callLLM(apiKey, systemPrompt, userPrompt) {
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey },
+        body: JSON.stringify({ model: "gpt-4o", max_tokens: 4096, temperature: 0.3, response_format: { type: "json_object" }, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }] })
+      });
+      if (!r.ok) { const e = await r.text(); let m = "OpenAI Error " + r.status; try { m = JSON.parse(e).error?.message || m; } catch {} throw new Error(m); }
+      const d = await r.json(); const raw = d.choices?.[0]?.message?.content || "";
+      return JSON.parse(raw.replace(/```json|```/g, "").trim());
+    }
+    async function callAnalysis(apiKey, mk, text) { return callLLM(apiKey, SYSTEM_PROMPT, MODULE_PROMPTS[mk].prompt + text.slice(0, 12000)); }
+    async function callRewrite(apiKey, text) { return callLLM(apiKey, SYSTEM_PROMPT, REWRITE_PROMPT + text.slice(0, 10000)); }
+
+    async function readDocx(file) { const ab = await file.arrayBuffer(); return (await mammoth.extractRawText({ arrayBuffer: ab })).value; }
+
+    function exportDocx(chapters, fileName) {
+      const { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak } = window.docx;
+      const children = [];
+      chapters.forEach((ch, idx) => {
+        if (idx > 0) children.push(new Paragraph({ children: [new PageBreak()] }));
+        children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, spacing: { after: 300 }, children: [new TextRun({ text: ch.title, bold: true, size: 32, font: "Georgia" })] }));
+        ch.rewritten.split("\n").filter(p => p.trim()).forEach(p => {
+          children.push(new Paragraph({ spacing: { after: 200, line: 360 }, children: [new TextRun({ text: p.trim(), size: 24, font: "Georgia" })] }));
+        });
+      });
+      Packer.toBlob(new Document({ sections: [{ properties: {}, children }] })).then(blob => window.saveAs(blob, fileName));
+    }
+
+    function ScoreRing({ score, color, size = 120, strokeWidth = 8 }) {
+      const r = (size - strokeWidth) / 2, c = 2 * Math.PI * r, off = c - (score / 100) * c;
+      const [a, setA] = useState(c);
+      useEffect(() => { const t = setTimeout(() => setA(off), 100); return () => clearTimeout(t); }, [off]);
+      const g = s => s >= 90 ? "A+" : s >= 80 ? "A" : s >= 70 ? "B" : s >= 60 ? "C" : s >= 50 ? "D" : "F";
+      return (<div style={{ position: "relative", width: size, height: size }}>
+        <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={strokeWidth} />
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={a} style={{ transition: "stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)" }} />
+        </svg>
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ fontFamily: "'Playfair Display',serif", fontSize: size*0.3, fontWeight: 900, color, lineHeight: 1 }}>{score}</span>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: size*0.12, color: "rgba(255,255,255,0.5)", letterSpacing: 2, marginTop: 2 }}>{g(score)}</span>
+        </div>
+      </div>);
+    }
+
+    function Badge({ type, children }) {
+      const cs = { alta:{bg:"rgba(230,57,70,0.15)",fg:"#E63946",b:"rgba(230,57,70,0.3)"}, media:{bg:"rgba(244,162,97,0.15)",fg:"#F4A261",b:"rgba(244,162,97,0.3)"}, baixa:{bg:"rgba(42,157,143,0.15)",fg:"#2A9D8F",b:"rgba(42,157,143,0.3)"}, alto:{bg:"rgba(230,57,70,0.15)",fg:"#E63946",b:"rgba(230,57,70,0.3)"}, medio:{bg:"rgba(244,162,97,0.15)",fg:"#F4A261",b:"rgba(244,162,97,0.3)"}, baixo:{bg:"rgba(42,157,143,0.15)",fg:"#2A9D8F",b:"rgba(42,157,143,0.3)"}, forte:{bg:"rgba(42,157,143,0.15)",fg:"#2A9D8F",b:"rgba(42,157,143,0.3)"}, fraca:{bg:"rgba(230,57,70,0.15)",fg:"#E63946",b:"rgba(230,57,70,0.3)"} };
+      const c = cs[type] || cs.media;
+      return <span style={{ display:"inline-block", padding:"2px 10px", borderRadius:20, fontSize:11, fontFamily:"'JetBrains Mono',monospace", fontWeight:500, background:c.bg, color:c.fg, border:"1px solid "+c.b, textTransform:"uppercase", letterSpacing:1 }}>{children}</span>;
+    }
+
+    function ProblemCard({ item, accentColor }) {
+      const [ex, setEx] = useState(false);
+      const tr = item.trecho||item.trecho_original||"", exp = item.explicacao||item.problema||"", sug = item.sugestao||item.sugestao_reescrita||item.correcao||"";
+      return (<div onClick={()=>setEx(!ex)} style={{ background:ex?"rgba(255,255,255,0.05)":"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:12, padding:"16px 20px", cursor:"pointer", transition:"all 0.2s", borderLeft:"3px solid "+accentColor }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+          <Badge type={item.gravidade||item.impacto}>{item.gravidade||item.impacto}</Badge>
+          {item.tipo && <span style={{ fontSize:11, color:"rgba(255,255,255,0.4)", fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, textTransform:"uppercase" }}>{item.tipo}</span>}
+          <span style={{ marginLeft:"auto", fontSize:12, color:"rgba(255,255,255,0.3)" }}>{ex?"▲":"▼"}</span>
+        </div>
+        {tr && <div style={{ fontFamily:"'Source Serif 4',serif", fontSize:14, color:"rgba(255,255,255,0.7)", fontStyle:"italic", lineHeight:1.6, marginBottom:ex?12:0, maxHeight:ex?500:40, overflow:"hidden", transition:"max-height 0.3s ease" }}>"{tr}"</div>}
+        {ex && <div style={{ animation:"fadeIn 0.3s ease" }}>
+          {exp && <div style={{ marginTop:10, padding:"10px 14px", borderRadius:8, background:"rgba(255,255,255,0.04)", fontSize:13, fontFamily:"'Source Serif 4',serif", color:"rgba(255,255,255,0.6)", lineHeight:1.6 }}><strong style={{ color:"rgba(255,255,255,0.8)" }}>Problema: </strong>{exp}</div>}
+          {sug && <div style={{ marginTop:8, padding:"10px 14px", borderRadius:8, background:accentColor+"11", fontSize:13, fontFamily:"'Source Serif 4',serif", color:accentColor, lineHeight:1.6, border:"1px solid "+accentColor+"22" }}><strong>✦ Sugestão: </strong>{sug}</div>}
+          {item.regra && <div style={{ marginTop:6, fontSize:11, color:"rgba(255,255,255,0.35)", fontFamily:"'JetBrains Mono',monospace" }}>Regra: {item.regra}</div>}
+        </div>}
+      </div>);
+    }
+
+    function ModuleResult({ moduleKey, data }) {
+      const mod = MODULE_PROMPTS[moduleKey]; if (!data) return null;
+      const items = data.problemas||data.pontos_fracos||data.erros||data.sugestoes||[];
+      return (<div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:16, padding:28, marginBottom:24 }}>
+        <div style={{ display:"flex", alignItems:"flex-start", gap:24, marginBottom:24 }}>
+          <ScoreRing score={data.score||0} color={mod.color} />
+          <div style={{ flex:1 }}>
+            <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#fff", margin:"0 0 6px 0" }}>{mod.icon} {mod.name}</h3>
+            <p style={{ fontFamily:"'Source Serif 4',serif", fontSize:15, color:"rgba(255,255,255,0.6)", lineHeight:1.6, margin:0 }}>{data.resumo}</p>
+            {data.veredito && <div style={{ marginTop:10, display:"inline-block", padding:"6px 16px", borderRadius:20, fontSize:12, fontWeight:600, fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, textTransform:"uppercase", background:data.veredito.includes("como está")?"rgba(42,157,143,0.15)":data.veredito.includes("ajustes")?"rgba(244,162,97,0.15)":"rgba(230,57,70,0.15)", color:data.veredito.includes("como está")?"#2A9D8F":data.veredito.includes("ajustes")?"#F4A261":"#E63946" }}>{data.veredito}</div>}
+          </div>
+        </div>
+        {data.dimensoes && <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:12, marginBottom:20 }}>
+          {Object.entries(data.dimensoes).map(([k,v])=><div key={k} style={{ background:"rgba(255,255,255,0.03)", borderRadius:10, padding:"12px 16px", border:"1px solid rgba(255,255,255,0.05)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}><span style={{ fontSize:11, color:"rgba(255,255,255,0.4)", fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, textTransform:"uppercase" }}>{k.replace(/_/g," ")}</span><span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:18, color:mod.color }}>{v.score}</span></div>
+            <div style={{ height:3, borderRadius:2, background:"rgba(255,255,255,0.06)", overflow:"hidden" }}><div style={{ height:"100%", borderRadius:2, background:mod.color, width:v.score+"%", transition:"width 1s ease" }}/></div>
+            <p style={{ fontSize:12, color:"rgba(255,255,255,0.5)", margin:"8px 0 0", fontFamily:"'Source Serif 4',serif", lineHeight:1.5 }}>{v.comentario}</p>
+          </div>)}
+        </div>}
+        {data.o_que_falta && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
+          <div style={{ background:"rgba(230,57,70,0.06)", borderRadius:10, padding:16, border:"1px solid rgba(230,57,70,0.1)" }}><div style={{ fontSize:11, color:"#E63946", fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, marginBottom:6, textTransform:"uppercase" }}>O que falta</div><p style={{ fontSize:14, color:"rgba(255,255,255,0.7)", margin:0, fontFamily:"'Source Serif 4',serif", lineHeight:1.6 }}>{data.o_que_falta}</p></div>
+          <div style={{ background:"rgba(42,157,143,0.06)", borderRadius:10, padding:16, border:"1px solid rgba(42,157,143,0.1)" }}><div style={{ fontSize:11, color:"#2A9D8F", fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, marginBottom:6, textTransform:"uppercase" }}>Ponto forte</div><p style={{ fontSize:14, color:"rgba(255,255,255,0.7)", margin:0, fontFamily:"'Source Serif 4',serif", lineHeight:1.6 }}>{data.ponto_forte}</p></div>
+        </div>}
+        {data.estrutura && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:20 }}>
+          {Object.entries(data.estrutura).map(([k,v])=>{const qc={forte:"#2A9D8F",media:"#F4A261",fraca:"#E63946"};return <div key={k} style={{ background:"rgba(255,255,255,0.03)", borderRadius:10, padding:"12px 16px", borderTop:"3px solid "+(qc[v.qualidade]||mod.color) }}><div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, textTransform:"uppercase", marginBottom:4 }}>{k}</div><Badge type={v.qualidade}>{v.qualidade}</Badge><p style={{ fontSize:13, color:"rgba(255,255,255,0.6)", margin:"8px 0 0", fontFamily:"'Source Serif 4',serif", lineHeight:1.5 }}>{v.comentario}</p></div>})}
+        </div>}
+        {data.estatisticas && <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:10, padding:"12px 16px", marginBottom:16, display:"flex", gap:24, flexWrap:"wrap" }}>
+          {Object.entries(data.estatisticas).map(([k,v])=><div key={k}><span style={{ fontSize:11, color:"rgba(255,255,255,0.35)", fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, textTransform:"uppercase" }}>{k.replace(/_/g," ")}: </span><span style={{ fontSize:13, color:"rgba(255,255,255,0.7)", fontFamily:"'JetBrains Mono',monospace" }}>{typeof v==="object"?JSON.stringify(v):String(v)}</span></div>)}
+        </div>}
+        {data.recomendacao_final && <div style={{ background:mod.color+"0D", borderRadius:10, padding:16, border:"1px solid "+mod.color+"22", marginBottom:16 }}><div style={{ fontSize:11, color:mod.color, fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, marginBottom:6, textTransform:"uppercase" }}>Recomendação final</div><p style={{ fontSize:14, color:"rgba(255,255,255,0.8)", margin:0, fontFamily:"'Source Serif 4',serif", lineHeight:1.7 }}>{data.recomendacao_final}</p></div>}
+        {items.length>0 && <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, textTransform:"uppercase", marginBottom:4 }}>{items.length} {items.length===1?"item encontrado":"itens encontrados"} — clique para expandir</div>
+          {items.map((it,i)=><ProblemCard key={i} item={it} accentColor={mod.color}/>)}
+        </div>}
+      </div>);
+    }
+
+    function ChapterCard({ chapter, index, apiKey, onRewritten, rewrittenData }) {
+      const [status, setStatus] = useState(rewrittenData ? "done" : "idle");
+      const [result, setResult] = useState(rewrittenData?.result || null);
+      const [showOrig, setShowOrig] = useState(false);
+      const [errMsg, setErrMsg] = useState("");
+
+      useEffect(() => { if (rewrittenData && !result) { setResult(rewrittenData.result); setStatus("done"); } }, [rewrittenData]);
+
+      const doRewrite = async () => {
+        if (!apiKey) return; setStatus("running"); setErrMsg("");
+        try { const res = await callRewrite(apiKey, chapter.content); setResult(res); setStatus("done"); onRewritten(index, res.texto_reescrito, res); }
+        catch (err) { setErrMsg(err.message); setStatus("error"); }
+      };
+
+      return (<div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:14, padding:24, marginBottom:16, borderLeft:status==="done"?"3px solid #2A9D8F":status==="error"?"3px solid #E63946":"3px solid rgba(255,255,255,0.1)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:16 }}>
+          <div style={{ width:40, height:40, borderRadius:10, background:status==="done"?"rgba(42,157,143,0.15)":"rgba(255,255,255,0.05)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Playfair Display',serif", fontWeight:900, fontSize:16, color:status==="done"?"#2A9D8F":"rgba(255,255,255,0.4)" }}>{index+1}</div>
+          <div style={{ flex:1 }}>
+            <h4 style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:"#fff", margin:0 }}>{chapter.title}</h4>
+            <span style={{ fontSize:12, color:"rgba(255,255,255,0.35)", fontFamily:"'JetBrains Mono',monospace" }}>{chapter.wordCount.toLocaleString("pt-BR")} palavras</span>
+          </div>
+          {status==="idle" && <button onClick={doRewrite} style={{ background:"linear-gradient(135deg,#8B5CF6,#A78BFA)", border:"none", borderRadius:8, padding:"10px 20px", color:"#fff", cursor:"pointer", fontSize:13, fontFamily:"'JetBrains Mono',monospace", fontWeight:500 }}>✦ Reescrever</button>}
+          {status==="running" && <div style={{ padding:"10px 20px", fontSize:13, color:"#A78BFA", fontFamily:"'JetBrains Mono',monospace", animation:"pulse 1s infinite" }}>Reescrevendo...</div>}
+          {status==="done" && <div style={{ display:"flex", gap:8 }}>
+            <button onClick={doRewrite} style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"8px 14px", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:12, fontFamily:"'JetBrains Mono',monospace" }}>Refazer</button>
+            <div style={{ padding:"8px 14px", fontSize:12, color:"#2A9D8F", fontFamily:"'JetBrains Mono',monospace", fontWeight:500 }}>✓ Concluído</div>
+          </div>}
+          {status==="error" && <button onClick={doRewrite} style={{ background:"rgba(230,57,70,0.1)", border:"1px solid rgba(230,57,70,0.2)", borderRadius:8, padding:"8px 14px", color:"#E63946", cursor:"pointer", fontSize:12, fontFamily:"'JetBrains Mono',monospace" }}>Tentar novamente</button>}
+        </div>
+        {errMsg && <div style={{ background:"rgba(230,57,70,0.1)", borderRadius:8, padding:"10px 14px", marginBottom:12, fontSize:12, color:"#E63946", fontFamily:"'JetBrains Mono',monospace" }}>⚠ {errMsg}</div>}
+        {result && result.texto_reescrito && <div style={{ animation:"fadeIn 0.3s ease" }}>
+          <div style={{ display:"flex", gap:16, marginBottom:16 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px", borderRadius:8, background:"rgba(230,57,70,0.06)" }}><span style={{ fontSize:11, color:"rgba(255,255,255,0.4)", fontFamily:"'JetBrains Mono',monospace" }}>ANTES</span><span style={{ fontFamily:"'Playfair Display',serif", fontWeight:900, fontSize:20, color:"#E63946" }}>{result.score_antes_estimado}</span></div>
+            <div style={{ display:"flex", alignItems:"center", fontSize:18, color:"rgba(255,255,255,0.3)" }}>→</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px", borderRadius:8, background:"rgba(42,157,143,0.06)" }}><span style={{ fontSize:11, color:"rgba(255,255,255,0.4)", fontFamily:"'JetBrains Mono',monospace" }}>DEPOIS</span><span style={{ fontFamily:"'Playfair Display',serif", fontWeight:900, fontSize:20, color:"#2A9D8F" }}>{result.score_depois_estimado}</span></div>
+          </div>
+          {result.mudancas_principais && <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", fontFamily:"'JetBrains Mono',monospace", letterSpacing:1, textTransform:"uppercase", marginBottom:8 }}>Mudanças principais</div>
+            {result.mudancas_principais.map((m,i)=><div key={i} style={{ display:"flex", alignItems:"flex-start", gap:8, marginBottom:6 }}><span style={{ color:"#2A9D8F", fontSize:14, marginTop:1 }}>✦</span><span style={{ fontSize:13, color:"rgba(255,255,255,0.6)", fontFamily:"'Source Serif 4',serif", lineHeight:1.5 }}>{m}</span></div>)}
+          </div>}
+          <div style={{ display:"flex", gap:4, marginBottom:12 }}>
+            <button onClick={()=>setShowOrig(false)} style={{ background:!showOrig?"rgba(139,92,246,0.15)":"transparent", border:"1px solid "+(!showOrig?"rgba(139,92,246,0.3)":"rgba(255,255,255,0.06)"), borderRadius:6, padding:"6px 14px", cursor:"pointer", color:!showOrig?"#A78BFA":"rgba(255,255,255,0.4)", fontSize:12, fontFamily:"'JetBrains Mono',monospace" }}>Texto reescrito</button>
+            <button onClick={()=>setShowOrig(true)} style={{ background:showOrig?"rgba(255,255,255,0.05)":"transparent", border:"1px solid "+(showOrig?"rgba(255,255,255,0.1)":"rgba(255,255,255,0.06)"), borderRadius:6, padding:"6px 14px", cursor:"pointer", color:showOrig?"rgba(255,255,255,0.6)":"rgba(255,255,255,0.3)", fontSize:12, fontFamily:"'JetBrains Mono',monospace" }}>Original</button>
+          </div>
+          <div style={{ background:"rgba(0,0,0,0.3)", borderRadius:10, padding:20, maxHeight:400, overflowY:"auto", border:"1px solid "+(showOrig?"rgba(255,255,255,0.06)":"rgba(139,92,246,0.15)") }}>
+            <pre style={{ fontFamily:"'Source Serif 4',serif", fontSize:14, color:"rgba(255,255,255,0.75)", lineHeight:1.8, whiteSpace:"pre-wrap", wordWrap:"break-word", margin:0 }}>{showOrig ? chapter.content : result.texto_reescrito}</pre>
+          </div>
+        </div>}
+      </div>);
+    }
+
+    function App() {
+      const [apiKey, setApiKey] = useState(""); const [showKey, setShowKey] = useState(false);
+      const [text, setText] = useState(""); const [fileName, setFileName] = useState(""); const [wordCount, setWordCount] = useState(0);
+      const [chapters, setChapters] = useState([]); const [results, setResults] = useState({});
+      const [running, setRunning] = useState(null); const [error, setError] = useState("");
+      const [activeTab, setActiveTab] = useState(null); const [allDone, setAllDone] = useState(false);
+      const [view, setView] = useState("analysis"); const [rewrittenChapters, setRewrittenChapters] = useState({});
+      const [rewritingAll, setRewritingAll] = useState(false); const [rewriteProgress, setRewriteProgress] = useState("");
+      const fileRef = useRef(null); const moduleKeys = Object.keys(MODULE_PROMPTS);
+
+      const handleFile = useCallback(async (e) => {
+        const file = e.target.files?.[0]; if (!file) return;
+        setError(""); setResults({}); setAllDone(false); setActiveTab(null); setRewrittenChapters({}); setView("analysis");
+        try { setFileName(file.name); const c = await readDocx(file); setText(c); setWordCount(c.split(/\s+/).filter(Boolean).length); setChapters(detectChapters(c)); }
+        catch (err) { setError("Erro ao ler: " + err.message); }
+      }, []);
+
+      const runAll = useCallback(async () => {
+        if (!apiKey) { setError("Insira sua API key"); return; } if (!text) { setError("Carregue um .docx"); return; }
+        setError(""); setResults({}); setAllDone(false);
+        for (const k of moduleKeys) { setRunning(k); setActiveTab(k);
+          try { setResults(prev => ({ ...prev, [k]: await callAnalysis(apiKey, k, text) })); }
+          catch (err) { setResults(prev => ({ ...prev, [k]: { score: 0, resumo: "Erro: " + err.message } })); }
+        } setRunning(null); setAllDone(true);
+      }, [apiKey, text, moduleKeys]);
+
+      const runSingle = useCallback(async (k) => {
+        if (!apiKey) { setError("Insira sua API key"); return; } if (!text) { setError("Carregue um .docx"); return; }
+        setError(""); setRunning(k); setActiveTab(k);
+        try { setResults(prev => ({ ...prev, [k]: await callAnalysis(apiKey, k, text) })); }
+        catch (err) { setResults(prev => ({ ...prev, [k]: { score: 0, resumo: "Erro: " + err.message } })); }
+        setRunning(null);
+      }, [apiKey, text]);
+
+      const handleChapterRewritten = useCallback((i, txt, res) => { setRewrittenChapters(prev => ({ ...prev, [i]: { text: txt, result: res } })); }, []);
+
+      const rewriteAllChapters = useCallback(async () => {
+        if (!apiKey || !chapters.length) return; setRewritingAll(true);
+        for (let i = 0; i < chapters.length; i++) {
+          setRewriteProgress("Reescrevendo capítulo " + (i+1) + " de " + chapters.length + "...");
+          try { const res = await callRewrite(apiKey, chapters[i].content); setRewrittenChapters(prev => ({ ...prev, [i]: { text: res.texto_reescrito, result: res } })); }
+          catch (err) { setRewrittenChapters(prev => ({ ...prev, [i]: { text: chapters[i].content, result: { error: err.message } } })); }
+        } setRewritingAll(false); setRewriteProgress("");
+      }, [apiKey, chapters]);
+
+      const handleExport = () => {
+        const data = chapters.map((ch, i) => ({ title: ch.title, rewritten: rewrittenChapters[i]?.text || ch.content }));
+        exportDocx(data, fileName.replace(/\.docx$/i, "") + " — CATALISADO.docx");
+      };
+
+      const rc = Object.keys(rewrittenChapters).length, allRw = rc === chapters.length && chapters.length > 0;
+      const os = moduleKeys.filter(k=>results[k]?.score).length > 0 ? Math.round(moduleKeys.reduce((s,k)=>s+(results[k]?.score||0),0)/moduleKeys.filter(k=>results[k]?.score).length) : null;
+
+      return (<div style={{ minHeight:"100vh", background:"#0A0A0F", color:"#fff", fontFamily:"'Source Serif 4',serif" }}>
+        <div style={{ position:"fixed", inset:0, opacity:0.03, pointerEvents:"none", backgroundImage:"radial-gradient(circle at 25% 25%,#E63946 0%,transparent 50%),radial-gradient(circle at 75% 75%,#457B9D 0%,transparent 50%)" }}/>
+        <div style={{ maxWidth:960, margin:"0 auto", padding:"40px 24px", position:"relative" }}>
+
+          <header style={{ textAlign:"center", marginBottom:48 }}>
+            <div style={{ fontSize:12, fontFamily:"'JetBrains Mono',monospace", letterSpacing:6, textTransform:"uppercase", color:"rgba(255,255,255,0.25)", marginBottom:16 }}>GRUPO PASDIORA · EDITORIAL AI</div>
+            <h1 style={{ fontFamily:"'Playfair Display',serif", fontSize:48, fontWeight:900, margin:0, lineHeight:1.1, background:"linear-gradient(135deg,#E63946,#F4A261,#E9C46A)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Catalisador Literário</h1>
+            <p style={{ fontSize:16, color:"rgba(255,255,255,0.4)", marginTop:12, fontStyle:"italic" }}>Transforme manuscritos em obras que o leitor não consegue largar</p>
+          </header>
+
+          <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:14, padding:"20px 24px", marginBottom:20 }}>
+            <label style={{ fontSize:11, fontFamily:"'JetBrains Mono',monospace", letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.35)", display:"block", marginBottom:8 }}>🔑 OPENAI API KEY</label>
+            <div style={{ display:"flex", gap:8 }}>
+              <input type={showKey?"text":"password"} value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-proj-..." style={{ flex:1, background:"rgba(0,0,0,0.3)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:8, padding:"10px 14px", color:"#fff", fontSize:14, fontFamily:"'JetBrains Mono',monospace" }}/>
+              <button onClick={()=>setShowKey(!showKey)} style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:8, padding:"0 14px", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:13 }}>{showKey?"Ocultar":"Mostrar"}</button>
+            </div>
+            <div style={{ fontSize:11, color:"rgba(255,255,255,0.25)", marginTop:6, fontFamily:"'JetBrains Mono',monospace" }}>Sua key fica apenas no browser. Nada é salvo.</div>
+          </div>
+
+          <div style={{ background:"rgba(255,255,255,0.03)", border:"2px dashed rgba(255,255,255,0.08)", borderRadius:14, padding:32, textAlign:"center", marginBottom:20, cursor:"pointer" }}
+            onClick={()=>fileRef.current?.click()}
+            onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#F4A261"}}
+            onDragLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.08)"}}
+            onDrop={e=>{e.preventDefault();e.currentTarget.style.borderColor="rgba(255,255,255,0.08)";if(e.dataTransfer.files[0]){const dt=new DataTransfer();dt.items.add(e.dataTransfer.files[0]);fileRef.current.files=dt.files;handleFile({target:{files:e.dataTransfer.files}})}}}>
+            <input ref={fileRef} type="file" accept=".docx" onChange={handleFile} style={{ display:"none" }}/>
+            {fileName ? <div style={{ animation:"fadeIn 0.3s ease" }}>
+              <div style={{ fontSize:40, marginBottom:8 }}>📖</div>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700, color:"#F4A261", marginBottom:4 }}>{fileName}</div>
+              <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:"rgba(255,255,255,0.4)" }}>{wordCount.toLocaleString("pt-BR")} palavras · ~{Math.ceil(wordCount/250)} páginas · {chapters.length} {chapters.length===1?"capítulo":"capítulos"}</div>
+            </div> : <div><div style={{ fontSize:40, marginBottom:8, opacity:0.5 }}>📄</div><div style={{ fontSize:15, color:"rgba(255,255,255,0.4)" }}>Arraste seu <strong style={{ color:"rgba(255,255,255,0.6)" }}>.docx</strong> aqui ou clique</div></div>}
+          </div>
+
+          {error && <div style={{ background:"rgba(230,57,70,0.1)", border:"1px solid rgba(230,57,70,0.2)", borderRadius:10, padding:"12px 16px", marginBottom:20, fontSize:13, color:"#E63946", fontFamily:"'JetBrains Mono',monospace" }}>⚠ {error}</div>}
+
+          {text && <div style={{ display:"flex", gap:4, marginBottom:20, background:"rgba(255,255,255,0.03)", borderRadius:10, padding:4 }}>
+            <button onClick={()=>setView("analysis")} style={{ flex:1, padding:12, borderRadius:8, border:"none", cursor:"pointer", background:view==="analysis"?"linear-gradient(135deg,#E63946,#F4A261)":"transparent", color:view==="analysis"?"#fff":"rgba(255,255,255,0.4)", fontSize:14, fontFamily:"'Playfair Display',serif", fontWeight:700 }}>🔬 Análise</button>
+            <button onClick={()=>setView("rewrite")} style={{ flex:1, padding:12, borderRadius:8, border:"none", cursor:"pointer", background:view==="rewrite"?"linear-gradient(135deg,#8B5CF6,#A78BFA)":"transparent", color:view==="rewrite"?"#fff":"rgba(255,255,255,0.4)", fontSize:14, fontFamily:"'Playfair Display',serif", fontWeight:700 }}>✦ Reescrita {rc>0&&"("+rc+"/"+chapters.length+")"}</button>
+          </div>}
+
+          {view==="analysis" && <div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, marginBottom:12 }}>
+              {moduleKeys.map(k=>{const mod=MODULE_PROMPTS[k],done=!!results[k],isR=running===k;return <button key={k} onClick={()=>done?setActiveTab(k):runSingle(k)} disabled={isR||(running&&running!==k)} style={{ background:isR?"linear-gradient(90deg,"+mod.color+"22,"+mod.color+"44,"+mod.color+"22)":done?mod.color+"15":"rgba(255,255,255,0.03)", backgroundSize:isR?"200% 100%":undefined, animation:isR?"shimmer 1.5s infinite":undefined, border:"1px solid "+(done?mod.color+"44":"rgba(255,255,255,0.06)"), borderRadius:10, padding:"14px 12px", cursor:"pointer", color:done?mod.color:"rgba(255,255,255,0.5)", textAlign:"center", transition:"all 0.3s", opacity:(running&&running!==k)?0.4:1 }}>
+                <div style={{ fontSize:22, marginBottom:4 }}>{mod.icon}</div>
+                <div style={{ fontSize:11, fontFamily:"'JetBrains Mono',monospace", letterSpacing:0.5, lineHeight:1.3 }}>{mod.name}</div>
+                {done&&results[k].score>0&&<div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:900, color:mod.color, marginTop:4 }}>{results[k].score}</div>}
+                {isR&&<div style={{ fontSize:10, marginTop:4, animation:"pulse 1s infinite", color:mod.color }}>analisando...</div>}
+              </button>})}
+            </div>
+            <button onClick={runAll} disabled={!!running||!text} style={{ width:"100%", padding:16, marginBottom:32, borderRadius:12, border:"none", cursor:running?"wait":"pointer", background:running?"linear-gradient(90deg,#E6394622,#F4A26144,#E6394622)":"linear-gradient(135deg,#E63946,#F4A261)", backgroundSize:running?"200% 100%":undefined, animation:running?"shimmer 1.5s infinite":undefined, color:"#fff", fontSize:15, fontFamily:"'Playfair Display',serif", fontWeight:700, letterSpacing:1, opacity:(!text||!!running)?0.5:1 }}>
+              {running?"⏳ Analisando: "+MODULE_PROMPTS[running]?.name+"...":allDone?"✦ Reanalisar tudo":"⚡ ANALISAR TUDO — 5 módulos"}
+            </button>
+            {os!==null&&<div style={{ textAlign:"center", marginBottom:32, animation:"fadeIn 0.5s ease" }}><div style={{ fontSize:11, fontFamily:"'JetBrains Mono',monospace", letterSpacing:3, textTransform:"uppercase", color:"rgba(255,255,255,0.3)", marginBottom:12 }}>SCORE EDITORIAL GERAL</div><ScoreRing score={os} color="#F4A261" size={160} strokeWidth={10}/></div>}
+            {Object.keys(results).length>0&&<div style={{ display:"flex", gap:4, marginBottom:24, flexWrap:"wrap", borderBottom:"1px solid rgba(255,255,255,0.06)", paddingBottom:12 }}>
+              {moduleKeys.filter(k=>results[k]).map(k=>{const mod=MODULE_PROMPTS[k],act=activeTab===k;return <button key={k} onClick={()=>setActiveTab(k)} style={{ background:act?mod.color+"15":"transparent", border:"1px solid "+(act?mod.color+"44":"transparent"), borderRadius:8, padding:"8px 16px", cursor:"pointer", color:act?mod.color:"rgba(255,255,255,0.4)", fontSize:12, fontFamily:"'JetBrains Mono',monospace" }}>{mod.icon} {mod.name}{results[k].score>0&&<span style={{ marginLeft:6, fontWeight:700 }}>{results[k].score}</span>}</button>})}
+            </div>}
+            {activeTab&&results[activeTab]&&<div style={{ animation:"fadeIn 0.3s ease" }}><ModuleResult moduleKey={activeTab} data={results[activeTab]}/></div>}
+          </div>}
+
+          {view==="rewrite" && <div>
+            <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:24 }}>
+              <div style={{ flex:1 }}>
+                <h2 style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:900, color:"#fff", margin:"0 0 4px 0" }}>✦ Reescrita por Capítulo</h2>
+                <p style={{ fontSize:14, color:"rgba(255,255,255,0.4)", margin:0 }}>{chapters.length} capítulos · {rc} reescritos</p>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                {!rewritingAll&&chapters.length>0&&<button onClick={rewriteAllChapters} style={{ background:"linear-gradient(135deg,#8B5CF6,#A78BFA)", border:"none", borderRadius:10, padding:"12px 20px", color:"#fff", cursor:"pointer", fontSize:13, fontFamily:"'JetBrains Mono',monospace", fontWeight:500 }}>⚡ Reescrever todos</button>}
+                {rc>0&&<button onClick={handleExport} style={{ background:"linear-gradient(135deg,#2A9D8F,#34D399)", border:"none", borderRadius:10, padding:"12px 20px", color:"#fff", cursor:"pointer", fontSize:13, fontFamily:"'JetBrains Mono',monospace", fontWeight:500 }}>📥 Baixar .docx</button>}
+              </div>
+            </div>
+            {rewritingAll&&<div style={{ background:"rgba(139,92,246,0.1)", border:"1px solid rgba(139,92,246,0.2)", borderRadius:10, padding:"12px 16px", marginBottom:20, fontSize:13, color:"#A78BFA", fontFamily:"'JetBrains Mono',monospace", animation:"pulse 1.5s infinite" }}>⏳ {rewriteProgress}</div>}
+            {rc>0&&<div style={{ marginBottom:20 }}>
+              <div style={{ height:4, borderRadius:2, background:"rgba(255,255,255,0.06)", overflow:"hidden" }}><div style={{ height:"100%", borderRadius:2, background:allRw?"linear-gradient(90deg,#2A9D8F,#34D399)":"linear-gradient(90deg,#8B5CF6,#A78BFA)", width:(rc/chapters.length*100)+"%", transition:"width 0.5s ease" }}/></div>
+              <div style={{ fontSize:11, color:"rgba(255,255,255,0.3)", fontFamily:"'JetBrains Mono',monospace", marginTop:4, textAlign:"right" }}>{rc}/{chapters.length}</div>
+            </div>}
+            {chapters.map((ch,i)=><ChapterCard key={i} chapter={ch} index={i} apiKey={apiKey} onRewritten={handleChapterRewritten} rewrittenData={rewrittenChapters[i]}/>)}
+          </div>}
+
+          <footer style={{ textAlign:"center", marginTop:48, paddingTop:24, borderTop:"1px solid rgba(255,255,255,0.04)" }}>
+            <div style={{ fontSize:11, fontFamily:"'JetBrains Mono',monospace", letterSpacing:2, color:"rgba(255,255,255,0.15)" }}>CATALISADOR LITERÁRIO · GRUPO PASDIORA · {new Date().getFullYear()}</div>
+            <div style={{ fontSize:11, color:"rgba(255,255,255,0.1)", marginTop:4, fontFamily:"'JetBrains Mono',monospace" }}>Powered by GPT-4o · OpenAI API</div>
+          </footer>
+        </div>
+      </div>);
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
